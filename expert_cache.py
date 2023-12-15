@@ -88,7 +88,7 @@ class ExpertCache:
 
         infos_to_load = [info for info in infos if info.offloaded]
         infos_to_evict = self.choose_evicted_experts(infos)
-        assert not any(info.offloaded if info in infos_to_evict)
+        assert not any(info.offloaded for info in infos_to_evict)
         assert len(infos_to_evict) == len(infos_to_load)
 
         for i in range(len(infos_to_load)):
@@ -108,4 +108,3 @@ class ExpertCache:
 
         assert not any(info.offloaded for info in infos)
         return [self.main_modules[info.index] for info in infos]
-    
