@@ -41,19 +41,19 @@ class ExpertCache:
         self.main_modules = [deepcopy(module).to(device) for _ in range(main_size)]
         self.main_infos: Sequence[Optional[ExpertInfo]] = [None for _ in range(main_size)]
 
-        self.offloaded_storages = [module.storage.cpu().clone() for _ in range(offload_size)]
+        self.offloaded_storages = [module.storage.cpu().clone().pin_memory(device) for _ in range(offload_size)]
         self.offloaded_infos: Sequence[Optional[ExpertInfo]] = [None for _ in range(offload_size)]
 
         # temporary storage to shave off latency
         self.device_expert_buffers = deque([deepcopy(module).to(device) for _ in range(buffer_size)])
-        self.offloaded_storage_buffers = deque([module.storage.cpu().clone() for _ in range(buffer_size)])
+        self.offloaded_storage_buffers = deque([module.storage.cpu().clone().pin_memory(device) for _ in range(buffer_size)])
 
-    def add_expert(self, uid: ExpertUID, module: ModuleWithStorage, eviction_group: int = 0):
+    def add_expert(self, uid: ExpertUID, module: ModuleWithStorage):
         """Register an expert to the cache and associate it with uid"""
         assert isinstance(module, self.module_type)
-        return self.add_expert_storage(uid, module.storage, eviction_group=eviction_group)
+        return self.add_expert_storage(uid, module.storage)
 
-    def add_expert_storage(self, uid: ExpertUID, storage: torch.UntypedStorage, eviction_group: int = 0):
+    def add_expert_storage(self, uid: ExpertUID, storage: torch.UntypedStorage):
         assert uid not in self.registered_experts, f"expert {uid} already registered"
         assert isinstance(storage, torch.UntypedStorage)
         assert len(storage) == self.module_size
@@ -65,7 +65,7 @@ class ExpertCache:
                     uid, offloaded=False, index=i, last_use=self.counter)
                 return  # done allocating; found spot on device
         for i in range(len(self.offloaded_storages)):
-            if self.offloaded_storages[i] is None:
+            if self.offloaded_infos[i] is None:
                 self.offloaded_storages[i].copy_(storage)
                 self.registered_experts[uid] = self.offloaded_infos[i] = ExpertInfo(
                     uid, offloaded=True, index=i, last_use=self.counter)
@@ -79,6 +79,7 @@ class ExpertCache:
         return random.sample(available_infos, k=num_replaced)  # TODO unfuck
 
     def load_experts(self, *uids: ExpertUID) -> Sequence[ModuleWithStorage]:
+        assert len(set(uids)) == len(uids)
         assert len(uids) <= len(self.main_modules)
         assert len(uids) <= len(self.device_expert_buffers)  # can be lifted at the cost of slower memory
         infos = [self.registered_experts[uid] for uid in uids]
@@ -93,18 +94,21 @@ class ExpertCache:
 
         for i in range(len(infos_to_load)):
             # swap a single on-device expert with a single offloaded expert using buffers for parallelism
-            host_storage_buffer = self.offloaded_storage_buffers.popleft()
+            offloaded_storage_buffer = self.offloaded_storage_buffers.popleft()
             device_expert_buffer = self.device_expert_buffers.popleft()
             device_expert_buffer.storage.copy_(self.offloaded_storages[infos_to_load[i].index], non_blocking=True)
-            host_storage_buffer.copy_(self.main_modules[infos_to_evict[i].index], non_blocking=True)
+            offloaded_storage_buffer.copy_(self.main_modules[infos_to_evict[i].index].storage, non_blocking=True)
 
             self.device_expert_buffers.append(self.main_modules[infos_to_evict[i].index])
             self.main_modules[infos_to_evict[i].index] = device_expert_buffer
             self.offloaded_storage_buffers.append(self.offloaded_storages[infos_to_load[i].index])
-            self.offloaded_storages[infos_to_load[i].index] = host_storage_buffer
+            self.offloaded_storages[infos_to_load[i].index] = offloaded_storage_buffer
 
+            self.main_infos[infos_to_evict[i].index] = infos_to_load[i]
+            self.offloaded_infos[infos_to_load[i].index] = infos_to_evict[i]
             infos_to_evict[i].offloaded, infos_to_load[i].offloaded = infos_to_load[i].offloaded, infos_to_evict[i].offloaded
             infos_to_evict[i].index, infos_to_load[i].index = infos_to_load[i].index, infos_to_evict[i].index
+
 
         assert not any(info.offloaded for info in infos)
         return [self.main_modules[info.index] for info in infos]
