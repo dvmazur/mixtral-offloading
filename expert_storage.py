@@ -1,12 +1,15 @@
+import typing as tp
 from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 from transformers.activations import ACT2FN
 from hivemind.utils import nested_flatten, nested_pack
+import torch
+from torch import nn
     
     
 class MixtralExpertWrapper(nn.Module):
     def __init__(
         self,
-        expert_module: MixtralBLockSparseTop2MLP,
+        expert_module: tp.Any,
         device: torch.device,
     ):
         super().__init__()
@@ -18,7 +21,7 @@ class MixtralExpertWrapper(nn.Module):
     
     @staticmethod
     def replace_layer_storage(
-        layer: MixtralBLockSparseTop2MLP,
+        layer: tp.Any,
         device: torch.device,
     ):
         state_dict = {
