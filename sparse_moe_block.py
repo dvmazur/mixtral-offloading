@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch import functional as F
+from torch.nn import functional as F
 from .expert_cache import ExpertCache
 
 
@@ -32,11 +32,10 @@ class MixtralSparseMoeBlock(nn.Module):
         self.gate = nn.Linear(self.hidden_dim, self.num_experts, bias=False)
         self.experts = expert_cache
         
-
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        """ """
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
+        # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate(hidden_states)
 
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
@@ -54,18 +53,12 @@ class MixtralSparseMoeBlock(nn.Module):
         expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
 
         active_experts = selected_experts.flatten().unique().tolist()
-        next_expert, = self.experts.load_experts((self.layer_id, active_experts[0]))
 
         # Loop over all available experts in the model and perform the computation on each expert
-        for i, expert_idx in enumerate(active_experts):
+        for (_layer_index, expert_idx), expert_layer in self.experts.load_experts(
+                *((self.layer_id, expert_idx) for expert_idx in active_experts), unordered=True):
             idx, top_x = torch.where(expert_mask[expert_idx])
             assert top_x.shape[0] > 0
-
-            expert_layer = next_expert
-            if i < len(active_experts) - 1:
-                next_expert, = self.experts.load_experts((self.layer_id, active_experts[i + 1]))
-            else:
-                next_expert = None
 
             # in torch it is faster to index using lists than torch tensors
             top_x_list = top_x.tolist()
@@ -80,6 +73,5 @@ class MixtralSparseMoeBlock(nn.Module):
             # However `index_add_` only support torch tensors for indexing so we'll use
             # the `top_x` tensor here.
             final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
-            
         final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
         return final_hidden_states, router_logits
