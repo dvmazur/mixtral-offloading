@@ -13,24 +13,10 @@ class MixtralExpertWrapper(nn.Module):
     ):
         super().__init__()
         
-        expert_module, self.storage = self.replace_layer_storage(expert_module, device)
-        self.expert_module = lambda *args, **kwargs: expert_module(*args, **kwargs)
-        
-        self._register_state_dict_hook(self._add_storage_to_state_dict_hook)
-        self._register_load_state_dict_pre_hook(self._load_storage_from_state_dict_hook)
-        
-    @staticmethod
-    def _add_storage_to_state_dict_hook(self, state_dict, prefix, local_metadata):
-        state_dict[prefix + 'storage'] = torch.as_tensor(self.storage, dtype=torch.uint8)
-        return state_dict
-    
-    def _load_storage_from_state_dict_hook(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        self.storage.copy_(state_dict[prefix + 'storage'].storage().untyped())
-        del state_dict[prefix + 'storage']
+        self.expert_module, self.storage = self.replace_layer_storage(expert_module, device)
     
     def forward(self, *args, **kwargs):
         return self.expert_module(*args, **kwargs)
-    
     
     @staticmethod
     def replace_layer_storage(
