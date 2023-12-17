@@ -1,8 +1,9 @@
 import random
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Sequence, Dict, Optional
 from collections import deque, defaultdict
+from expert_storage import MixtralExpertWrapper
+
 
 import torch
 import torch.nn as nn
@@ -22,44 +23,46 @@ class ExpertInfo:
 class ExpertCache:
     def __init__(self, make_module: callable, main_size: int, offload_size: int, buffer_size: int):
         """Dynamically loads an array of modules with identical hyperparameters"""
-        
         self.counter = 0
-        
+        self.module_type = self.module_size = self.device = None
+
         # group_stats: eviction_group -> dict {'hits', 'misses'}
         self.group_stats: Dict[int, Dict[str, int]] = defaultdict(lambda: {'hits': 0, 'misses': 0})
 
         self.registered_experts: Dict[ExpertUID, ExpertInfo] = dict()
         
-        self.main_modules = []
-        for i in range(main_size):
-            module = make_module()
-            assert isinstance(module.storage, torch.UntypedStorage)
-            self.main_modules.append(module)
-            if i == 0:
-                self.module_type = type(module)
-                self.module_size = len(module.storage)
-                self.device = device = module.storage.device
-            else:
-                assert isinstance(module, self.module_type)
-                assert len(module.storage) == self.module_size
-                assert module.storage.device == self.device
-                assert module.storage is not self.main_modules[0].storage
-        
+        self.main_modules = [self._check_module(make_module()) for i in range(main_size)]
         self.main_infos: Sequence[Optional[ExpertInfo]] = [None for _ in range(main_size)]
-
-        self.offloaded_storages = [module.storage.cpu().clone().pin_memory(device) for _ in range(offload_size)]
+        
+        assert self.module_size is not None
+        self.offloaded_storages = [
+            torch.UntypedStorage(self.module_size).pin_memory(self.device) for _ in range(offload_size)]
         self.offloaded_infos: Sequence[Optional[ExpertInfo]] = [None for _ in range(offload_size)]
         
         # eviction_group -> list of infos
         self.group_infos: Dict[int, List[ExpertInfo]] = defaultdict(list)
 
         # temporary storage to shave off latency
-        self.device_expert_buffers = deque([deepcopy(module).to(device) for _ in range(buffer_size)])
-        self.offloaded_storage_buffers = deque([module.storage.cpu().clone().pin_memory(device) for _ in range(buffer_size)])
+        self.device_expert_buffers = deque([self._check_module(make_module()) for _ in range(buffer_size)])
+        self.offloaded_storage_buffers = deque([
+            torch.UntypedStorage(self.module_size).pin_memory(self.device) for _ in range(buffer_size)])
+        
+    def _check_module(self, module: MixtralExpertWrapper):
+        assert isinstance(module.storage, torch.UntypedStorage)
+        if self.module_type is None:
+            self.module_type = type(module)
+            self.module_size = len(module.storage)
+            self.device = module.storage.device
+        else:
+            assert isinstance(module, self.module_type)
+            assert len(module.storage) == self.module_size
+            assert module.storage.device == self.device
+        return module
 
     def add_expert(self, uid: ExpertUID, module: MixtralExpertWrapper, eviction_group: int = 0,
                    offload: Optional[bool] = None):
         """Register an expert to the cache and associate it with uid"""
+        assert self.module_type is not None
         assert isinstance(module, self.module_type)
         return self.add_expert_storage(uid, module.storage, eviction_group=eviction_group, offload=offload)
 
