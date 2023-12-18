@@ -88,6 +88,8 @@ class HQQLinearSavable(HQQLinear):
         _set('W_q')
         if 'bias' in state_dict:
             _set('bias')
+        else:
+            self.bias = None
             
         if not hasattr(self, 'meta'):
             self.meta = {}
