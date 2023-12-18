@@ -19,7 +19,7 @@ class HQQLinearSavable(HQQLinear):
         
         if not hasattr(self, 'meta'):
             assert meta is not None
-            self.meta = meta
+            self.meta = copy.deepcopy(meta)
         
         self._register_state_dict_hook(self._add_to_state_dict_hook)
         self._register_load_state_dict_pre_hook(self._load_from_state_dict_hook)
@@ -126,7 +126,7 @@ class HQQLinearSavable(HQQLinear):
         
         self.cuda()
         self.in_gpu = self.W_q.device.type == 'cuda'
-#         assert self.in_gpu
+        assert self.in_gpu
         
     @classmethod
     def _get_tensor_paths(cls, state: Dict[str, Any], prefix=''):
@@ -151,9 +151,9 @@ class MixtralBLockSparseTop2MLP_HQQ(nn.Module):
     def __init__(self, config: MixtralConfig, quant_config: Dict[str, Any], meta1, meta2):
         super().__init__()
         
-        self.w1 = HQQLinearSavable(None, quant_config, copy.deepcopy(meta1))
-        self.w2 = HQQLinearSavable(None, quant_config, copy.deepcopy(meta2))
-        self.w3 = HQQLinearSavable(None, quant_config, copy.deepcopy(meta1))
+        self.w1 = HQQLinearSavable(None, quant_config, meta1)
+        self.w2 = HQQLinearSavable(None, quant_config, meta2)
+        self.w3 = HQQLinearSavable(None, quant_config, meta1)
 
         self.act_fn = ACT2FN[config.hidden_act]
 
