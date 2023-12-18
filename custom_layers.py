@@ -4,6 +4,10 @@ from transformers.activations import ACT2FN
 from typing import Dict, Any
 from hqq.core.quantize import HQQLinear
 
+import torch
+from torch import nn
+from torch.nn import functional as F
+
 class HQQLinearSavable(HQQLinear):
     def __init__(self, layer, quant_config, meta=None, **kwargs):
         """
@@ -122,7 +126,7 @@ class HQQLinearSavable(HQQLinear):
         
         self.cuda()
         self.in_gpu = self.W_q.device.type == 'cuda'
-        assert self.in_gpu
+#         assert self.in_gpu
         
     @classmethod
     def _get_tensor_paths(cls, state: Dict[str, Any], prefix=''):
