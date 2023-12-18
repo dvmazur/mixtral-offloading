@@ -1,3 +1,4 @@
+import copy
 from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 from transformers.activations import ACT2FN
 from typing import Dict, Any
@@ -8,7 +9,7 @@ class HQQLinearSavable(HQQLinear):
         """
         Example how to get meta:
         >>>> meta1 = HQQLinearSavable.get_hqq_meta((hidden_dim, ffn_dim), quant_config)
-        >>> meta2 = HQQLinearSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
+        >>>> meta2 = HQQLinearSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
         """
         super().__init__(layer, quant_config, **kwargs)
         
@@ -22,6 +23,7 @@ class HQQLinearSavable(HQQLinear):
     @classmethod
     def get_hqq_meta(cls, linear_shape, quant_config):
         layer = HQQLinear(nn.Linear(*linear_shape, bias=False), quant_config)
+        meta = layer.meta
 
         def _remove_tensors_recursive(d):
             keys = list(d.keys())
@@ -32,9 +34,9 @@ class HQQLinearSavable(HQQLinear):
                 elif isinstance(d[k], dict):
                     _remove_tensors_recursive(d[k])
 
-        _remove_tensors_recursive(layer.meta)
+        _remove_tensors_recursive(meta)
 
-        return layer.meta
+        return meta
         
     @staticmethod
     def _add_to_state_dict_hook(self, state_dict, prefix, local_metadata):
@@ -118,6 +120,7 @@ class HQQLinearSavable(HQQLinear):
             self.meta['zero'] = _get('meta.zero')
         self.ready = True
         
+        self.cuda()
         self.in_gpu = self.W_q.device.type == 'cuda'
         assert self.in_gpu
         
@@ -144,9 +147,9 @@ class MixtralBLockSparseTop2MLP_HQQ(nn.Module):
     def __init__(self, config: MixtralConfig, quant_config: Dict[str, Any], meta1, meta2):
         super().__init__()
         
-        self.w1 = HQQLinearSavable(None, quant_config, meta1)
-        self.w2 = HQQLinearSavable(None, quant_config, meta2)
-        self.w3 = HQQLinearSavable(None, quant_config, meta1)
+        self.w1 = HQQLinearSavable(None, quant_config, copy.deepcopy(meta1))
+        self.w2 = HQQLinearSavable(None, quant_config, copy.deepcopy(meta2))
+        self.w3 = HQQLinearSavable(None, quant_config, copy.deepcopy(meta1))
 
         self.act_fn = ACT2FN[config.hidden_act]
 
