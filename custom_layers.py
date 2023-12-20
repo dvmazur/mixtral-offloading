@@ -18,6 +18,9 @@ class HQQLinearTritonSavable(HQQLinear):
         >>>> meta1 = HQQLinearSavable.get_hqq_meta((hidden_dim, ffn_dim), quant_config)
         >>>> meta2 = HQQLinearSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
         """
+        
+        assert quant_config['nbits'] in [2, 4]
+        
         super().__init__(layer, quant_config, **kwargs)
         
         if not hasattr(self, 'meta'):
