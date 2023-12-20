@@ -1,5 +1,6 @@
 import triton
 import triton.language as tl
+import torch
 from typing import Optional
 
 @triton.autotune(
