@@ -8,7 +8,10 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-class HQQLinearSavable(HQQLinear):
+from .packing import pack_4bit_u8_common, pack_2bit_u8_common, unpack_4bit_u8_common, unpack_2bit_u8_common
+from .triton_kernels import triton_matmul4_transpose, triton_matmul2_transpose
+
+class HQQLinearTritonSavable(HQQLinear):
     def __init__(self, layer, quant_config, meta=None, **kwargs):
         """
         Example how to get meta:
@@ -23,6 +26,60 @@ class HQQLinearSavable(HQQLinear):
         
         self._register_state_dict_hook(self._add_to_state_dict_hook)
         self._register_load_state_dict_pre_hook(self._load_from_state_dict_hook)
+    
+    def quantize(self, *args, **kwargs):
+        super().quantize(*args, **kwargs)
+        
+        # repacking
+        self.repack()
+    
+    def repack(self):
+        if self.W_q.shape != self.meta['shape']:
+            W_q = Quantizer.unpack[self.meta['packing']](self.W_q)
+            W_q = W_q.reshape(self.meta['shape'])
+            self.W_q = Quantizer.pack[self.meta['packing']](W_q)
+    
+    def forward(self, x):
+        return self.forward_triton(x)
+    
+    def set_backend(self, backend):
+        pass
+    
+    @torch.inference_mode()
+    def forward_triton(self, x):
+        assert self.ready, "model was not quantized"
+        assert self.meta['axis'] == 0
+
+        W_q, meta = self.W_q, self.meta
+
+        del_keys = []
+        if 'quant_scale' in meta and meta['quant_scale']:
+            meta['scale'] = Quantizer.dequantize(meta['scale_q'], meta['meta_scale']); del_keys.append('scale')
+        if 'quant_zero' in meta and meta['quant_zero']:
+            meta['zero']  = Quantizer.dequantize(meta['zero_q'],  meta['meta_zero']);  del_keys.append('zero')
+
+        K = meta['shape'][1]
+        
+        if self.meta['nbits'] == 4:
+            fn = triton_matmul4_transpose
+        elif self.meta['nbits'] == 2:
+            fn = triton_matmul2_transpose
+        else:
+            raise RuntimeError(f"nbits == {self.meta['nbits']} isn't yet supported")
+        
+        output = fn(
+            meta['group_size'], x,
+            W_q.view(-1, K),
+            meta['scale'].view(-1, K),
+            meta['zero'].view(-1, K),
+            self.bias if hasattr(self, 'bias') else None,
+        )
+
+        #Cleanup
+        for key in del_keys:
+            del meta[key]
+
+        return output
     
     @classmethod
     def get_hqq_meta(cls, linear_shape, quant_config):
@@ -127,6 +184,8 @@ class HQQLinearSavable(HQQLinear):
         self.cuda()
         self.in_gpu = self.W_q.device.type == 'cuda'
         assert self.in_gpu
+        
+        self.repack()
         
     @classmethod
     def _get_tensor_paths(cls, state: Dict[str, Any], prefix=''):
