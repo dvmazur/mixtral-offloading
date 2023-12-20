@@ -83,6 +83,29 @@ class HQQLinearTritonSavable(HQQLinear):
             del meta[key]
 
         return output
+
+    # to support .forward_pytorch(...)
+    @torch.inference_mode()
+    def dequantize(self):
+        assert self.ready, "model was not quantized"
+        W_q, meta = self.W_q, self.meta
+        del_keys = []
+        if(meta['quant_scale']):
+            meta['scale'] = Quantizer.dequantize(meta['scale_q'], meta['meta_scale']); del_keys.append('scale')
+        if(meta['quant_zero']):
+            meta['zero']  = Quantizer.dequantize(meta['zero_q'],  meta['meta_zero']);  del_keys.append('zero')
+        
+        W_q_p = Quantizer.unpack[meta['packing']](W_q).half()
+        W_q_p = W_q_p.reshape((meta['group_size'], -1))
+    
+        if((meta['group_size'] is not None) and (meta['nbits']==3)):
+            W_q_p = W_q_p[:meta['group_size']] if (meta['axis']==0) else W_q_p[:,:meta['group_size']]
+        W_est = ((W_q_p - meta['zero'])*meta['scale']).reshape(meta['shape']) 
+        
+        #Cleanup
+        del W_q_p
+        for key in del_keys: del meta[key]
+        return W_est
     
     @classmethod
     def get_hqq_meta(cls, linear_shape, quant_config):
@@ -213,9 +236,9 @@ class MixtralBLockSparseTop2MLP_HQQ(nn.Module):
     def __init__(self, config: MixtralConfig, quant_config: Dict[str, Any], meta1, meta2):
         super().__init__()
         
-        self.w1 = HQQLinearSavable(None, quant_config, meta1)
-        self.w2 = HQQLinearSavable(None, quant_config, meta2)
-        self.w3 = HQQLinearSavable(None, quant_config, meta1)
+        self.w1 = HQQLinearTritonSavable(None, quant_config, meta1)
+        self.w2 = HQQLinearTritonSavable(None, quant_config, meta2)
+        self.w3 = HQQLinearTritonSavable(None, quant_config, meta1)
 
         self.act_fn = ACT2FN[config.hidden_act]
 
