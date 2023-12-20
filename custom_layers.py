@@ -19,7 +19,7 @@ class HQQLinearTritonSavable(HQQLinear):
         >>>> meta2 = HQQLinearSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
         """
         
-        assert quant_config['nbits'] in [2, 4]
+        assert quant_config['weight_quant_params']['nbits'] in [2, 4]
         
         super().__init__(layer, quant_config, **kwargs)
         
