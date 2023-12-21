@@ -2,7 +2,7 @@ import copy
 from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 from transformers.activations import ACT2FN
 from typing import Dict, Any
-from hqq.core.quantize import HQQLinear
+from hqq.core.quantize import HQQLinear, Quantizer
 
 import torch
 from torch import nn
