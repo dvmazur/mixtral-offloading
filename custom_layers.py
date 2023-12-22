@@ -11,7 +11,6 @@ from torch.nn import functional as F
 from .packing import pack_4bit_u8_common, pack_2bit_u8_common, unpack_4bit_u8_common, unpack_2bit_u8_common
 from .triton_kernels import triton_matmul4_transpose, triton_matmul2_transpose
 
-
 class HQQLinearTritonSavable(HQQLinear):
     def __init__(self, layer, quant_config, meta=None, **kwargs):
         """
@@ -208,9 +207,9 @@ class HQQLinearTritonSavable(HQQLinear):
             self.meta['zero'] = _get('meta.zero')
         self.ready = True
         
-        self.cuda()
-        self.in_gpu = self.W_q.device.type == 'cuda'
-        assert self.in_gpu
+#         self.cuda()
+#         self.in_gpu = self.W_q.device.type == 'cuda'
+#         assert self.in_gpu
         
         self.repack()
         
