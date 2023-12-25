@@ -26,8 +26,6 @@ from .expert_cache import ExpertCache
 from .expert_storage import MixtralExpertWrapper
 from .custom_layers import HQQLinearTritonSavable, MixtralBLockSparseTop2MLP_HQQ, SparseMoeWrapper
 from .utils import with_default_dtype
-from .build_model import replace_attn_layers
-
 
 
 def patch_fct_hqq(linear_layer, quant_config):
