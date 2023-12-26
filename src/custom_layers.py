@@ -11,6 +11,7 @@ from torch.nn import functional as F
 from .packing import pack_4bit_u8_common, pack_2bit_u8_common, unpack_4bit_u8_common, unpack_2bit_u8_common
 from .triton_kernels import triton_matmul4_transpose, triton_matmul2_transpose
 
+
 class HQQLinearTritonSavable(HQQLinear):
     def __init__(self, layer, quant_config, meta=None, **kwargs):
         """
@@ -19,7 +20,7 @@ class HQQLinearTritonSavable(HQQLinear):
         >>>> meta2 = HQQLinearSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
         """
         
-        assert quant_config['weight_quant_params']['nbits'] in [2, 4]
+        assert quant_config['weight_quant_params']['nbits'] in [2, 3, 4]
         
         super().__init__(layer, quant_config, **kwargs)
         
@@ -39,7 +40,9 @@ class HQQLinearTritonSavable(HQQLinear):
     def repack(self):
         if self.W_q.shape != self.meta['shape']:
             W_q = Quantizer.unpack[self.meta['packing']](self.W_q)
-            W_q = W_q.reshape(self.meta['shape'])
+            sh = self.meta['shape']
+            W_q = W_q.reshape((-1,) + sh[1:])
+            W_q = W_q[:sh[0], ...]
             self.W_q = Quantizer.pack[self.meta['packing']](W_q)
     
     def forward(self, x):
@@ -62,9 +65,12 @@ class HQQLinearTritonSavable(HQQLinear):
             meta['zero']  = Quantizer.dequantize(meta['zero_q'],  meta['meta_zero']);  del_keys.append('zero')
 
         K = meta['shape'][1]
+        N = meta['shape'][0]
         
         if self.meta['nbits'] == 4:
             fn = triton_matmul4_transpose
+        if self.meta['nbits'] == 3:
+            fn = functools.partial(triton_matmul3_transpose, N=N)
         elif self.meta['nbits'] == 2:
             fn = triton_matmul2_transpose
         else:
@@ -75,7 +81,7 @@ class HQQLinearTritonSavable(HQQLinear):
             W_q.view(-1, K),
             meta['scale'].view(-1, K),
             meta['zero'].view(-1, K),
-            self.bias if hasattr(self, 'bias') else None,
+            bias=self.bias if hasattr(self, 'bias') else None,
         )
 
         #Cleanup
@@ -84,7 +90,7 @@ class HQQLinearTritonSavable(HQQLinear):
 
         return output
 
-    # to support .forward_pytorch(...)
+    # to support .forward_pytorch(...) - backward compatibility
     @torch.inference_mode()
     def dequantize(self):
         assert self.ready, "model was not quantized"
@@ -96,6 +102,7 @@ class HQQLinearTritonSavable(HQQLinear):
             meta['zero']  = Quantizer.dequantize(meta['zero_q'],  meta['meta_zero']);  del_keys.append('zero')
         
         W_q_p = Quantizer.unpack[meta['packing']](W_q).half()
+        W_q_p = W_q_p[:meta['shape'][0], ...]
         W_q_p = W_q_p.reshape((meta['group_size'], -1))
     
         if((meta['group_size'] is not None) and (meta['nbits']==3)):
@@ -207,9 +214,9 @@ class HQQLinearTritonSavable(HQQLinear):
             self.meta['zero'] = _get('meta.zero')
         self.ready = True
         
-#         self.cuda()
-#         self.in_gpu = self.W_q.device.type == 'cuda'
-#         assert self.in_gpu
+        # self.cuda()
+        # self.in_gpu = self.W_q.device.type == 'cuda'
+        # assert self.in_gpu
         
         self.repack()
         
