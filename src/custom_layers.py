@@ -10,7 +10,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .packing import pack_4bit_u8_common, pack_2bit_u8_common, unpack_4bit_u8_common, unpack_2bit_u8_common
-from .triton_kernels import triton_matmul4_transpose, triton_matmul2_transpose
+from .triton_kernels import triton_matmul4_transpose, triton_matmul3_transpose, triton_matmul2_transpose
 
 
 class HQQLinearTritonSavable(HQQLinear):
