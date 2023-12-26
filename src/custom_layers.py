@@ -69,7 +69,7 @@ class HQQLinearTritonSavable(HQQLinear):
         
         if self.meta['nbits'] == 4:
             fn = triton_matmul4_transpose
-        if self.meta['nbits'] == 3:
+        elif self.meta['nbits'] == 3:
             fn = functools.partial(triton_matmul3_transpose, N=N)
         elif self.meta['nbits'] == 2:
             fn = triton_matmul2_transpose
