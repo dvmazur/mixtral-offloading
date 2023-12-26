@@ -1,4 +1,5 @@
 import copy
+import functools
 from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 from transformers.activations import ACT2FN
 from typing import Dict, Any
