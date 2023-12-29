@@ -27,7 +27,7 @@ from .custom_layers import (
 from .utils import with_default_dtype
 
 
-def replace_attn_layers(model, config):
+def replace_attn_layers(model, config, device):
     attn_params = BaseQuantizeConfig(
         nbits=4, group_size=64, quant_zero=True, quant_scale=True
     )
@@ -44,11 +44,11 @@ def replace_attn_layers(model, config):
         (hidden_size, num_key_value_heads * head_dim),
         (num_heads * head_dim, hidden_size),
     ]
-    shape_to_meta = {}
-
-    for shape in shapes:
-        meta = HQQLinearTritonSavable.get_hqq_meta(shape, attn_params)
-        shape_to_meta[shape] = meta
+    
+    shape_to_meta = {
+        shape: HQQLinearTritonSavable.get_hqq_meta(shape, attn_params)
+        for shape in shapes
+    }
 
     def patch_fct_hqq(shape, quant_config):
         meta = shape_to_meta[shape]
@@ -56,15 +56,9 @@ def replace_attn_layers(model, config):
         return layer
 
     for i in range(32):
-        model.model.layers[i].block_sparse_moe.gate = (
-            nn.Linear(
-                config.hidden_size,
-                config.num_local_experts,
-                bias=False,
-            )
-            .half()
-            .cuda()
-        )
+        gate = nn.Linear(config.hidden_size, config.num_local_experts, dtype=torch.half, device=device)
+        model.model.layers[i].block_sparse_moe.gate = gate
+
         model.model.layers[i].self_attn.q_proj = patch_fct_hqq(
             (hidden_size, num_heads * head_dim), attn_params
         )
@@ -173,7 +167,7 @@ def build_model(device: torch.device, offload_config: OffloadConfig, state_path:
             ),
         )
     model_config = AutoConfig.from_pretrained(model_name)
-    replace_attn_layers(model, model_config)
+    replace_attn_layers(model, model_config, device)
     state_index_path = os.path.join(state_path, "model.safetensors.index.json")
     with open(state_index_path) as f:
         weight_map = json.load(f)["weight_map"]
