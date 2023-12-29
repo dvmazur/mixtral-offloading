@@ -44,7 +44,7 @@ def replace_attn_layers(model, config, device):
         (hidden_size, num_key_value_heads * head_dim),
         (num_heads * head_dim, hidden_size),
     ]
-    
+
     shape_to_meta = {
         shape: HQQLinearTritonSavable.get_hqq_meta(shape, attn_params)
         for shape in shapes
@@ -56,7 +56,13 @@ def replace_attn_layers(model, config, device):
         return layer
 
     for i in range(32):
-        gate = nn.Linear(config.hidden_size, config.num_local_experts, dtype=torch.half, device=device)
+        gate = nn.Linear(
+            config.hidden_size,
+            config.num_local_experts,
+            dtype=torch.half,
+            device=device,
+            bias=False,
+        )
         model.model.layers[i].block_sparse_moe.gate = gate
 
         model.model.layers[i].self_attn.q_proj = patch_fct_hqq(
