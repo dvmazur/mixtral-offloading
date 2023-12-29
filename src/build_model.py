@@ -9,7 +9,6 @@ from torch import nn
 from transformers import AutoConfig
 from transformers.models.mixtral import MixtralForCausalLM
 
-
 from safetensors.torch import load_file
 
 from torch import nn
@@ -55,7 +54,6 @@ def replace_attn_layers(model, config, device):
         layer = HQQLinearTritonSavable(None, quant_config, meta=meta)
         return layer
 
-    
     for layer in model.model.layers:
         layer.block_sparse_moe.gate = nn.Linear(
             config.hidden_size,
@@ -105,11 +103,11 @@ def make_empty_expert(config):
 
 
 def make_and_load_expert_wrapper(
-    config,
-    states_dir,
-    layer_idx,
-    expert_idx,
-    device,
+        config,
+        states_dir,
+        layer_idx,
+        expert_idx,
+        device,
 ):
     index_path = os.path.join(states_dir, "model.safetensors.index.json")
     with open(index_path) as f:

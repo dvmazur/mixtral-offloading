@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import torch
+
 """ utility functions that help you process nested dicts, tuples, lists and namedtuples """
 
 
@@ -89,6 +90,7 @@ def nested_map(fn, *t):
 
     flat = map(nested_flatten, t)
     return nested_pack(map(fn, *flat), t[0])
+
 
 @contextmanager
 def with_default_dtype(dtype):
