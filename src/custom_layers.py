@@ -33,12 +33,6 @@ class HQQLinearTritonSavable(HQQLinear):
         self._register_state_dict_hook(self._add_to_state_dict_hook)
         self._register_load_state_dict_pre_hook(self._load_from_state_dict_hook)
 
-    @classmethod
-    def with_shape(cls, shape: Tuple[int, ...], quant_config: Dict[str, Any], **kwargs):
-        meta = HQQLinearTritonSavable.get_hqq_meta(shape, quant_config)
-
-        return HQQLinearTritonSavable(None, quant_config, meta=meta, **kwargs)
-
     def quantize(self, *args, **kwargs):
         super().quantize(*args, **kwargs)
 
@@ -131,6 +125,10 @@ class HQQLinearTritonSavable(HQQLinear):
 
     @classmethod
     def get_hqq_meta(cls, linear_shape: Tuple[int, ...], quant_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Creates hqq metadata by creating new HQQLinear and removing all tensors from its meta
+        """
+
         layer = HQQLinear(nn.Linear(*linear_shape, bias=False), quant_config)
         meta = layer.meta
 
