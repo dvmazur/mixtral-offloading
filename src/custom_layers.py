@@ -1,16 +1,20 @@
 import copy
-import functools
-from transformers.models.mixtral.configuration_mixtral import MixtralConfig
-from transformers.activations import ACT2FN
-from typing import Dict, Any
-from hqq.core.quantize import HQQLinear, Quantizer
-
 import torch
+import functools
 from torch import nn
 from torch.nn import functional as F
+from transformers.models.mixtral.configuration_mixtral import MixtralConfig
+from transformers.activations import ACT2FN
 
-from .packing import pack_4bit_u8_common, pack_2bit_u8_common, unpack_4bit_u8_common, unpack_2bit_u8_common
-from .triton_kernels import triton_matmul4_transpose, triton_matmul3_transpose, triton_matmul2_transpose
+from hqq.core.quantize import HQQLinear, Quantizer
+from .packing import (
+    pack_4bit_u8_common, pack_2bit_u8_common,
+    unpack_4bit_u8_common, unpack_2bit_u8_common
+)
+from .triton_kernels import (
+    triton_matmul4_transpose, triton_matmul3_transpose,
+    triton_matmul2_transpose
+)
 
 
 class HQQLinearTritonSavable(HQQLinear):
