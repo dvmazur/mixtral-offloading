@@ -55,26 +55,26 @@ def replace_attn_layers(model, config, device):
         layer = HQQLinearTritonSavable(None, quant_config, meta=meta)
         return layer
 
-    for i in range(32):
-        gate = nn.Linear(
+    
+    for layer in model.model.layers:
+        layer.block_sparse_moe.gate = nn.Linear(
             config.hidden_size,
             config.num_local_experts,
-            dtype=torch.half,
+            dtype=torch.float16,
             device=device,
             bias=False,
         )
-        model.model.layers[i].block_sparse_moe.gate = gate
 
-        model.model.layers[i].self_attn.q_proj = patch_fct_hqq(
+        layer.self_attn.q_proj = patch_fct_hqq(
             (hidden_size, num_heads * head_dim), attn_params
         )
-        model.model.layers[i].self_attn.k_proj = patch_fct_hqq(
+        layer.self_attn.k_proj = patch_fct_hqq(
             (hidden_size, num_key_value_heads * head_dim), attn_params
         )
-        model.model.layers[i].self_attn.v_proj = patch_fct_hqq(
+        layer.self_attn.v_proj = patch_fct_hqq(
             (hidden_size, num_key_value_heads * head_dim), attn_params
         )
-        model.model.layers[i].self_attn.o_proj = patch_fct_hqq(
+        layer.self_attn.o_proj = patch_fct_hqq(
             (hidden_size, num_heads * head_dim), attn_params
         )
 
