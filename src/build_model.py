@@ -94,12 +94,6 @@ def get_default_ffn_quant_config(ffn_dim: int = 14336, hidden_dim: int = 4096):
     return quant_config, meta1, meta2
 
 
-def patch_fct_hqq(linear_layer, quant_config):
-    linear_layer.cuda()
-    layer = HQQLinearTritonSavable(linear_layer, quant_config)
-    return layer
-
-
 def make_empty_expert(config):
     quant_config, meta1, meta2 = get_default_ffn_quant_config()
     return MixtralBLockSparseTop2MLP_HQQ(
