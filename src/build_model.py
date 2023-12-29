@@ -36,7 +36,11 @@ class OffloadConfig:
 
 
 class QuantConfig:
-    def __init__(self, ffn_config: BaseQuantizeConfig, attn_config: BaseQuantizeConfig):
+    def __init__(
+        self,
+        ffn_config: BaseQuantizeConfig,
+        attn_config: BaseQuantizeConfig,
+    ):
         self.ffn_config = ffn_config
         self.attn_config = attn_config
 
@@ -48,21 +52,21 @@ class QuantConfig:
         )
 
 
-@dataclass(frozen=True)
-class QuantConfig:
-    ffn_config: BaseQuantizeConfig
-    attn_config: BaseQuantizeConfig
+# @dataclass(frozen=True)
+# class QuantConfig:
+#     ffn_config: BaseQuantizeConfig
+#     attn_config: BaseQuantizeConfig
 
-    @cache
-    def get_ffn_metas(self, hidden_dim: int, ffn_dim: int) -> tuple[tp.Any, tp.Any]:
-        return (
-            HQQLinearTritonSavable.get_hqq_meta(
-                (hidden_dim, ffn_dim), self.quant_config
-            ),
-            HQQLinearTritonSavable.get_hqq_meta(
-                (ffn_dim, hidden_dim), self.quant_config
-            ),
-        )
+#     @cache
+#     def get_ffn_metas(self, hidden_dim: int, ffn_dim: int) -> tuple[tp.Any, tp.Any]:
+#         return (
+#             HQQLinearTritonSavable.get_hqq_meta(
+#                 (hidden_dim, ffn_dim), self.quant_config
+#             ),
+#             HQQLinearTritonSavable.get_hqq_meta(
+#                 (ffn_dim, hidden_dim), self.quant_config
+#             ),
+#         )
 
 
 def replace_attn_layers(
