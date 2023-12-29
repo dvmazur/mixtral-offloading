@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Iterator, Tuple, List
 from collections import deque, defaultdict, OrderedDict
-from .expert_storage import MixtralExpertWrapper
+from .expert_wrapper import MixtralExpertWrapper
 
 import torch
 from torch import nn

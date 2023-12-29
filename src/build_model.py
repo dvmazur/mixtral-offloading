@@ -8,23 +8,22 @@ from torch import nn
 
 from transformers import AutoConfig
 from transformers.models.mixtral import MixtralForCausalLM
-from transformers.models.mixtral.modeling_mixtral import MixtralBLockSparseTop2MLP
 
 
 from safetensors.torch import load_file
-from huggingface_hub import snapshot_download
 
 from torch import nn
 from tqdm.auto import trange
 
 from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
-from hqq.core.quantize import BaseQuantizeConfig
-
-from tqdm.auto import trange
 
 from .expert_cache import ExpertCache
-from .expert_storage import MixtralExpertWrapper
-from .custom_layers import HQQLinearTritonSavable, MixtralBLockSparseTop2MLP_HQQ, SparseMoeWrapper
+from .expert_wrapper import MixtralExpertWrapper
+from .custom_layers import (
+    HQQLinearTritonSavable,
+    MixtralBLockSparseTop2MLP_HQQ,
+    SparseMoeWrapper,
+)
 from .utils import with_default_dtype
 
 
@@ -35,21 +34,22 @@ def patch_fct_hqq(linear_layer, quant_config):
 
 
 def patch_linear_fct(linear_layer, quant_config):
-    if(quant_config is None):
+    if quant_config is None:
         return linear_layer.half().cuda()
     else:
         return patch_fct_hqq(linear_layer, quant_config)
 
 
 def replace_attn_layers(model, config):
-    attn_params = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=True)
-    attn_params['scale_quant_params']['group_size'] = 256
+    attn_params = BaseQuantizeConfig(
+        nbits=4, group_size=64, quant_zero=True, quant_scale=True
+    )
+    attn_params["scale_quant_params"]["group_size"] = 256
 
     hidden_size = config.hidden_size
     num_heads = config.num_attention_heads
     head_dim = hidden_size // num_heads
     num_key_value_heads = config.num_key_value_heads
-    num_key_value_groups = num_heads // num_key_value_heads
 
     shapes = [
         (hidden_size, num_heads * head_dim),
@@ -69,31 +69,42 @@ def replace_attn_layers(model, config):
         return layer
 
     for i in range(32):
-        model.model.layers[i].block_sparse_moe.gate = nn.Linear(
-            config.hidden_size,
-            config.num_local_experts,
-            bias=False,
-        ).half().cuda()
-        model.model.layers[i].self_attn.q_proj = patch_fct_hqq((hidden_size, num_heads * head_dim), attn_params)
-        model.model.layers[i].self_attn.k_proj = patch_fct_hqq((hidden_size, num_key_value_heads * head_dim), attn_params)
-        model.model.layers[i].self_attn.v_proj = patch_fct_hqq((hidden_size, num_key_value_heads * head_dim), attn_params)
-        model.model.layers[i].self_attn.o_proj = patch_fct_hqq((hidden_size, num_heads * head_dim), attn_params)
-
+        model.model.layers[i].block_sparse_moe.gate = (
+            nn.Linear(
+                config.hidden_size,
+                config.num_local_experts,
+                bias=False,
+            )
+            .half()
+            .cuda()
+        )
+        model.model.layers[i].self_attn.q_proj = patch_fct_hqq(
+            (hidden_size, num_heads * head_dim), attn_params
+        )
+        model.model.layers[i].self_attn.k_proj = patch_fct_hqq(
+            (hidden_size, num_key_value_heads * head_dim), attn_params
+        )
+        model.model.layers[i].self_attn.v_proj = patch_fct_hqq(
+            (hidden_size, num_key_value_heads * head_dim), attn_params
+        )
+        model.model.layers[i].self_attn.o_proj = patch_fct_hqq(
+            (hidden_size, num_heads * head_dim), attn_params
+        )
 
 
 @cache
-def get_default_quant_config_and_meta(ffn_dim: int = 14336, hidden_dim: int = 4096):
-  quant_config = BaseQuantizeConfig(
-      nbits=2,
-      group_size=16,
-      quant_zero=True,
-      quant_scale=True,
-  )
+def get_default_ffn_quant_config(ffn_dim: int = 14336, hidden_dim: int = 4096):
+    quant_config = BaseQuantizeConfig(
+        nbits=2,
+        group_size=16,
+        quant_zero=True,
+        quant_scale=True,
+    )
 
-  meta1 = HQQLinearTritonSavable.get_hqq_meta((hidden_dim, ffn_dim), quant_config)
-  meta2 = HQQLinearTritonSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
+    meta1 = HQQLinearTritonSavable.get_hqq_meta((hidden_dim, ffn_dim), quant_config)
+    meta2 = HQQLinearTritonSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
 
-  return quant_config, meta1, meta2
+    return quant_config, meta1, meta2
 
 
 def patch_fct_hqq(linear_layer, quant_config):
@@ -102,29 +113,15 @@ def patch_fct_hqq(linear_layer, quant_config):
     return layer
 
 
-def patch_linear_fct(linear_layer, quant_config):
-    if(quant_config is None):
-        return linear_layer.half().cuda()
-    else:
-        return patch_fct_hqq(linear_layer, quant_config)
-
-
-@dataclass
-class OffloadConfig:
-    main_size: int
-    offload_size: int
-    buffer_size: int
-    offload_per_layer: int
-
-
 def make_empty_expert(config):
-    quant_config, meta1, meta2 = get_default_quant_config_and_meta()
+    quant_config, meta1, meta2 = get_default_ffn_quant_config()
     return MixtralBLockSparseTop2MLP_HQQ(
         config,
         quant_config,
         meta1,
         meta2,
     )
+
 
 def make_and_load_expert_wrapper(
     config,
@@ -161,15 +158,24 @@ def load_00_expert_state_dict(states_dir, device):
     return load_file(os.path.join(states_dir, state_fpath), device=str(device))
 
 
-def build_model(
-    device: torch.device,
-    offload_config: OffloadConfig,
-    state_path: str
-):
+@dataclass
+class OffloadConfig:
+    main_size: int
+    offload_size: int
+    buffer_size: int
+    offload_per_layer: int
+
+
+@dataclass
+class QuantConfig:
+    ...
+
+
+def build_model(device: torch.device, offload_config: OffloadConfig, state_path: str):
     model_name = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
     state_dict_00 = load_00_expert_state_dict(state_path, device)
-    
+
     def _make_module():
         config = AutoConfig.from_pretrained(model_name)
         expert = make_empty_expert(config)
@@ -196,7 +202,6 @@ def build_model(
         weight_map["model.embed_tokens.weight"],
     )
     model.load_state_dict(load_file(trunk_state_path, device=str(device)), strict=True)
-
 
     expert_cache = ExpertCache(
         make_module=_make_module,

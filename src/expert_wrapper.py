@@ -1,9 +1,9 @@
 import typing as tp
-from transformers.models.mixtral.configuration_mixtral import MixtralConfig
-from transformers.activations import ACT2FN
-from hivemind.utils import nested_flatten, nested_pack
+
 import torch
 from torch import nn
+
+from .utils import nested_flatten, nested_pack
 
 
 class MixtralExpertWrapper(nn.Module):
