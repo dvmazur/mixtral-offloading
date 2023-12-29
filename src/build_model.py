@@ -35,6 +35,19 @@ class OffloadConfig:
     offload_per_layer: int
 
 
+class QuantConfig:
+    def __init__(self, ffn_config: BaseQuantizeConfig, attn_config: BaseQuantizeConfig):
+        self.ffn_config = ffn_config
+        self.attn_config = attn_config
+
+    @cache
+    def get_ffn_metas(self, hidden_dim: int, ffn_dim: int) -> tuple[tp.Any, tp.Any]:
+        return (
+            HQQLinearTritonSavable.get_hqq_meta((hidden_dim, ffn_dim), self.ffn_config),
+            HQQLinearTritonSavable.get_hqq_meta((ffn_dim, hidden_dim), self.ffn_config),
+        )
+
+
 @dataclass(frozen=True)
 class QuantConfig:
     ffn_config: BaseQuantizeConfig
@@ -43,8 +56,12 @@ class QuantConfig:
     @cache
     def get_ffn_metas(self, hidden_dim: int, ffn_dim: int) -> tuple[tp.Any, tp.Any]:
         return (
-            HQQLinearTritonSavable.get_hqq_meta((hidden_dim, ffn_dim), self.quant_config),
-            HQQLinearTritonSavable.get_hqq_meta((ffn_dim, hidden_dim), self.quant_config),
+            HQQLinearTritonSavable.get_hqq_meta(
+                (hidden_dim, ffn_dim), self.quant_config
+            ),
+            HQQLinearTritonSavable.get_hqq_meta(
+                (ffn_dim, hidden_dim), self.quant_config
+            ),
         )
 
 
@@ -116,7 +133,9 @@ def get_default_ffn_quant_config(ffn_dim: int = 14336, hidden_dim: int = 4096):
     return quant_config, meta1, meta2
 
 
-def make_empty_expert(model_config: MixtralConfig, quant_config: QuantConfig) -> MixtralBLockSparseTop2MLP_HQQ:
+def make_empty_expert(
+    model_config: MixtralConfig, quant_config: QuantConfig
+) -> MixtralBLockSparseTop2MLP_HQQ:
     meta1, meta2 = quant_config.get_ffn_metas(
         model_config.hidden_size, model_config.intermediate_size
     )
