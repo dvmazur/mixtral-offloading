@@ -1,0 +1,5 @@
+torch>=2.1.0
+transformers==4.36.1
+git+https://github.com/mobiusml/hqq.git@37502bea31f2969c6680c0c4a88ca74b3bb234a5
+numpy==1.24.4
+tqdm==4.66.1
