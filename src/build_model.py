@@ -117,7 +117,9 @@ def get_default_ffn_quant_config(ffn_dim: int = 14336, hidden_dim: int = 4096):
 
 
 def make_empty_expert(model_config: MixtralConfig, quant_config: QuantConfig) -> MixtralBLockSparseTop2MLP_HQQ:
-    meta1, meta2 = quant_config.get_ffn_metas()
+    meta1, meta2 = quant_config.get_ffn_metas(
+        model_config.hidden_size, model_config.intermediate_size
+    )
     return MixtralBLockSparseTop2MLP_HQQ(
         model_config,
         quant_config.ffn_config,
