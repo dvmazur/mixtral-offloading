@@ -27,19 +27,6 @@ from .custom_layers import (
 from .utils import with_default_dtype
 
 
-def patch_fct_hqq(linear_layer, quant_config):
-    linear_layer.cuda()
-    layer = HQQLinearTritonSavable(linear_layer, quant_config)
-    return layer
-
-
-def patch_linear_fct(linear_layer, quant_config):
-    if quant_config is None:
-        return linear_layer.half().cuda()
-    else:
-        return patch_fct_hqq(linear_layer, quant_config)
-
-
 def replace_attn_layers(model, config):
     attn_params = BaseQuantizeConfig(
         nbits=4, group_size=64, quant_zero=True, quant_scale=True
@@ -209,7 +196,7 @@ def build_model(device: torch.device, offload_config: OffloadConfig, state_path:
         offload_size=offload_config.offload_size,
         buffer_size=offload_config.buffer_size,
     )
-    for layer_idx in trange(model_config.num_hidden_layers):
+    for layer_idx in trange(model_config.num_hidden_layers, desc="Loading experts"):
         curr_layer = model.model.layers[layer_idx]
         curr_layer.block_sparse_moe = SparseMoeWrapper(
             model_config,
