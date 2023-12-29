@@ -182,7 +182,7 @@ def build_model(
         )
 
     model_config = AutoConfig.from_pretrained(model_name)
-    replace_attn_layers(model, quant_config.attn_config, model_config, device)
+    replace_attn_layers(model, model_config, quant_config.attn_config, device)
     state_index_path = os.path.join(state_path, "model.safetensors.index.json")
     with open(state_index_path) as f:
         weight_map = json.load(f)["weight_map"]
