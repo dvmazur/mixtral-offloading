@@ -7,7 +7,7 @@ This project implements efficient inference of [Mixtral-8x7B models](https://mis
 In summary, we achieve efficient inference of Mixtral-8x7B models through a combination of techniques:
 
 * **Mixed quantization with HQQ**. We apply separate quantization schemes for attention layers and experts to fit the model into the combined GPU and CPU memory.
-* **MoE offloading strategy**. Each expert per layer is offloaded separately and only onloaded onto GPU when needed.
+* **MoE offloading strategy**. Each expert per layer is offloaded separately and only brought pack to GPU when needed. We store active experts in a LRU cache to reduce GPU-RAM communication when computing activations for adjecent tokens.
 
 For more detailed information about our methods and results, please refer to our [tech-report](https://arxiv.org/abs/2312.17238).
 
