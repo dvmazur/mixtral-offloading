@@ -17,7 +17,7 @@ To try this demo, please use the demo notebook: [./notebooks/demo.ipynb](./noteb
 
 For now, there is no command-line script available for running the model locally. However, you can create one using the demo notebook as as a reference. That being said, contributions are welcome!
 
-## Work in p
+## Work in progress
 
 Some techniques described in our technical report are not yet available in this repo. However, we are actively working on adding support for them in the near future.
 
