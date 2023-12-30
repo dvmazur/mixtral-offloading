@@ -164,10 +164,10 @@ class ExpertCache:
             for info in infos:
                 if len(pre_loaded_infos) > 0 and info is pre_loaded_infos[0]:
                     pre_loaded_infos.popleft()
-                    yield info.uid, pre_loaded_experts.popleft()
+                    yield (info.uid, pre_loaded_experts.popleft())
                 elif len(infos_in_loading) > 0 and info is infos_in_loading[0]:
                     infos_in_loading.popleft()
-                    yield info.uid, experts_in_loading.popleft()
+                    yield (info.uid, experts_in_loading.popleft())
                     if len(infos_to_load) > 0:
                         info_to_load = infos_to_load.popleft()
                         infos_in_loading.append(info_to_load)
