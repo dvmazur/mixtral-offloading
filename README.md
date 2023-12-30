@@ -15,7 +15,7 @@ For more detailed information about our methods and results, please refer to our
 
 To try this demo, please use the demo notebook: [./notebooks/demo.ipynb](./notebooks/demo.ipynb) or [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dvmazur/mixtral-offloading/blob/master/notebooks/demo.ipynb)
 
-For now, there is no command-line script available for running the model locally. However, you can create one using the demo notebook as as a reference. That being said, contributions are welcome!
+For now, there is no command-line script available for running the model locally. However, you can create one using the demo notebook as a reference. That being said, contributions are welcome!
 
 ## Work in progress
 
