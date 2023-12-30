@@ -2,58 +2,62 @@ import copy
 import functools
 from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 from transformers.activations import ACT2FN
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from hqq.core.quantize import HQQLinear, Quantizer
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-from .packing import pack_4bit_u8_common, pack_2bit_u8_common, unpack_4bit_u8_common, unpack_2bit_u8_common
-from .triton_kernels import triton_matmul4_transpose, triton_matmul3_transpose, triton_matmul2_transpose
+from .triton_kernels import triton_matmul_4bit_transpose, triton_matmul_3bit_transpose, triton_matmul_2bit_transpose
 
 
 class HQQLinearTritonSavable(HQQLinear):
-    def __init__(self, layer, quant_config, meta=None, **kwargs):
+    def __init__(self, layer: nn.Linear, quant_config: Dict[str, Any], meta: Dict[str, Any] | None = None, **kwargs):
         """
         Example how to get meta:
-        >>>> meta1 = HQQLinearSavable.get_hqq_meta((hidden_dim, ffn_dim), quant_config)
-        >>>> meta2 = HQQLinearSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
+        :example:
+        >>> meta1 = HQQLinearTritonSavable.get_hqq_meta((hidden_dim, ffn_dim), quant_config)
+        >>> meta2 = HQQLinearTritonSavable.get_hqq_meta((ffn_dim, hidden_dim), quant_config)
+        >>> layer = HQQLinearTritonSavable(None, quant_config, meta=meta1)
         """
-        
+
         assert quant_config['weight_quant_params']['nbits'] in [2, 3, 4]
-        
+
         super().__init__(layer, quant_config, **kwargs)
-        
+
         if not hasattr(self, 'meta'):
             assert meta is not None
             self.meta = copy.deepcopy(meta)
-        
+
         self._register_state_dict_hook(self._add_to_state_dict_hook)
         self._register_load_state_dict_pre_hook(self._load_from_state_dict_hook)
-    
+
     def quantize(self, *args, **kwargs):
         super().quantize(*args, **kwargs)
-        
+
         # repacking
         self.repack()
-    
-    def repack(self):
+
+    def repack(self) -> None:
+        """
+        Repacks quantized weights W_q to support fast triton kernels
+        """
         if self.W_q.shape != self.meta['shape']:
             W_q = Quantizer.unpack[self.meta['packing']](self.W_q)
             sh = self.meta['shape']
             W_q = W_q.reshape((-1,) + sh[1:])
             W_q = W_q[:sh[0], ...]
             self.W_q = Quantizer.pack[self.meta['packing']](W_q)
-    
-    def forward(self, x):
-        return self.forward_triton(x)
-    
-    def set_backend(self, backend):
+
+    def forward(self, *args, **kwargs):
+        return self.forward_triton(*args, **kwargs)
+
+    def set_backend(self, *args, **kwargs):
         pass
-    
+
     @torch.inference_mode()
-    def forward_triton(self, x):
+    def forward_triton(self, x: torch.Tensor):
         assert self.ready, "model was not quantized"
         assert self.meta['axis'] == 0
 
@@ -61,22 +65,24 @@ class HQQLinearTritonSavable(HQQLinear):
 
         del_keys = []
         if 'quant_scale' in meta and meta['quant_scale']:
-            meta['scale'] = Quantizer.dequantize(meta['scale_q'], meta['meta_scale']); del_keys.append('scale')
+            meta['scale'] = Quantizer.dequantize(meta['scale_q'], meta['meta_scale']);
+            del_keys.append('scale')
         if 'quant_zero' in meta and meta['quant_zero']:
-            meta['zero']  = Quantizer.dequantize(meta['zero_q'],  meta['meta_zero']);  del_keys.append('zero')
+            meta['zero'] = Quantizer.dequantize(meta['zero_q'], meta['meta_zero']);
+            del_keys.append('zero')
 
         K = meta['shape'][1]
         N = meta['shape'][0]
-        
+
         if self.meta['nbits'] == 4:
-            fn = triton_matmul4_transpose
+            fn = triton_matmul_4bit_transpose
         elif self.meta['nbits'] == 3:
-            fn = functools.partial(triton_matmul3_transpose, N=N)
+            fn = functools.partial(triton_matmul_3bit_transpose, N=N)
         elif self.meta['nbits'] == 2:
-            fn = triton_matmul2_transpose
+            fn = triton_matmul_2bit_transpose
         else:
             raise RuntimeError(f"nbits == {self.meta['nbits']} isn't yet supported")
-        
+
         output = fn(
             meta['group_size'], x,
             W_q.view(-1, K),
@@ -85,7 +91,7 @@ class HQQLinearTritonSavable(HQQLinear):
             bias=self.bias if hasattr(self, 'bias') else None,
         )
 
-        #Cleanup
+        # Cleanup
         for key in del_keys:
             del meta[key]
 
@@ -97,30 +103,36 @@ class HQQLinearTritonSavable(HQQLinear):
         assert self.ready, "model was not quantized"
         W_q, meta = self.W_q, self.meta
         del_keys = []
-        if(meta['quant_scale']):
-            meta['scale'] = Quantizer.dequantize(meta['scale_q'], meta['meta_scale']); del_keys.append('scale')
-        if(meta['quant_zero']):
-            meta['zero']  = Quantizer.dequantize(meta['zero_q'],  meta['meta_zero']);  del_keys.append('zero')
-        
+        if meta['quant_scale']:
+            meta['scale'] = Quantizer.dequantize(meta['scale_q'], meta['meta_scale']);
+            del_keys.append('scale')
+        if meta['quant_zero']:
+            meta['zero'] = Quantizer.dequantize(meta['zero_q'], meta['meta_zero']);
+            del_keys.append('zero')
+
         W_q_p = Quantizer.unpack[meta['packing']](W_q).half()
         W_q_p = W_q_p[:meta['shape'][0], ...]
         W_q_p = W_q_p.reshape((meta['group_size'], -1))
-    
-        if((meta['group_size'] is not None) and (meta['nbits']==3)):
-            W_q_p = W_q_p[:meta['group_size']] if (meta['axis']==0) else W_q_p[:,:meta['group_size']]
-        W_est = ((W_q_p - meta['zero'])*meta['scale']).reshape(meta['shape']) 
-        
-        #Cleanup
+
+        if (meta['group_size'] is not None) and (meta['nbits'] == 3):
+            W_q_p = W_q_p[:meta['group_size']] if (meta['axis'] == 0) else W_q_p[:, :meta['group_size']]
+        W_est = ((W_q_p - meta['zero']) * meta['scale']).reshape(meta['shape'])
+
+        # Cleanup
         del W_q_p
         for key in del_keys: del meta[key]
         return W_est
-    
+
     @classmethod
-    def get_hqq_meta(cls, linear_shape, quant_config):
+    def get_hqq_meta(cls, linear_shape: Tuple[int, ...], quant_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Creates hqq metadata by creating new HQQLinear and removing all tensors from its meta
+        """
+
         layer = HQQLinear(nn.Linear(*linear_shape, bias=False), quant_config)
         meta = layer.meta
 
-        def _remove_tensors_recursive(d):
+        def _remove_tensors_recursive(d: Dict[str, Any]) -> None:
             keys = list(d.keys())
 
             for k in keys:
@@ -132,65 +144,79 @@ class HQQLinearTritonSavable(HQQLinear):
         _remove_tensors_recursive(meta)
 
         return meta
-        
+
     @staticmethod
     def _add_to_state_dict_hook(self, state_dict, prefix, local_metadata):
+        """
+        State dict hook which adds all parameters to state dict.
+        This is needed because parameters in self.meta (which is Dict) aren't added to the state dict by default
+        """
+
         tensor_paths = self._get_tensor_paths(self.meta)
         assert set(tensor_paths).issubset(
             {'scale_q', 'meta_scale.scale', 'meta_scale.zero', 'zero_q', 'meta_zero.scale', 'meta_zero.zero',
-            'scale', 'zero'}
+             'scale', 'zero'}
         )
-        
+
         def _add(name, value):
             state_dict[prefix + name] = value
-        
+
         _add('W_q', self.W_q)
-        
+
         if self.bias is not None:
             _add('bias', self.bias)
-        
+
         if 'meta_scale' in self.meta:
             _add('meta.scale_q', self.meta['scale_q'])
             _add('meta.meta_scale.scale', self.meta['meta_scale']['scale'])
             _add('meta.meta_scale.zero', self.meta['meta_scale']['zero'])
         else:
             _add('meta.scale', self.meta['scale'])
-        
+
         if 'meta_zero' in self.meta:
             _add('meta.zero_q', self.meta['zero_q'])
             _add('meta.meta_zero.scale', self.meta['meta_zero']['scale'])
             _add('meta.meta_zero.zero', self.meta['meta_zero']['zero'])
         else:
             _add('meta.zero', self.meta['zero'])
-        
+
         return state_dict
-    
-    def _load_from_state_dict_hook(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+
+    def _load_from_state_dict_hook(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys,
+                                   error_msgs):
+        """
+        Load state dict hook which loads all parameters from state dict.
+        This is needed because parameters in self.meta (which is Dict) aren't loaded from the state dict by default
+        """
+
+        # just to check that we're not saving anything wrong
         tensor_paths = [k[len(prefix + 'meta.'):] for k in state_dict.keys() if k.startswith(prefix + 'meta.')]
         assert set(tensor_paths).issubset(
             {'scale_q', 'meta_scale.scale', 'meta_scale.zero', 'zero_q', 'meta_zero.scale', 'meta_zero.zero',
-            'scale', 'zero'}
+             'scale', 'zero'}
         )
-        
+
         def _del(name):
             del state_dict[prefix + name]
+
         def _set(name):
             setattr(self, name, state_dict[prefix + name])
             _del(name)
+
         def _get(name):
             v = state_dict[prefix + name]
             _del(name)
             return v
-        
+
         _set('W_q')
         if 'bias' in state_dict:
             _set('bias')
         else:
             self.bias = None
-            
+
         if not hasattr(self, 'meta'):
             self.meta = {}
-        
+
         if (prefix + 'meta.meta_scale.scale') in state_dict:
             self.meta['scale_q'] = _get('meta.scale_q')
             self.meta['quant_scale'] = True
@@ -205,7 +231,7 @@ class HQQLinearTritonSavable(HQQLinear):
         if (prefix + 'meta.meta_zero.scale') in state_dict:
             self.meta['zero_q'] = _get('meta.zero_q')
             self.meta['quant_zero'] = True
-            if not 'meta_zero' in self.meta:
+            if 'meta_zero' not in self.meta:
                 self.meta['meta_zero'] = {}
             self.meta['meta_zero'] |= {
                 'scale': _get('meta.meta_zero.scale'),
@@ -214,28 +240,28 @@ class HQQLinearTritonSavable(HQQLinear):
         else:
             self.meta['zero'] = _get('meta.zero')
         self.ready = True
-        
+
         # self.cuda()
         # self.in_gpu = self.W_q.device.type == 'cuda'
         # assert self.in_gpu
-        
+
         self.repack()
-        
+
     @classmethod
     def _get_tensor_paths(cls, state: Dict[str, Any], prefix=''):
         paths = []
-        
+
         for k, v in state.items():
             if isinstance(v, dict):
                 paths += cls._get_tensor_paths(v, prefix=k + '.')
             elif isinstance(v, torch.Tensor):
                 paths.append(prefix + k)
-        
+
         return paths
-    
+
     def state_dict(self, *args, **kwargs):
         return nn.Module.state_dict(self, *args, **kwargs)
-    
+
     def load_state_dict(self, *args, **kwargs):
         nn.Module.load_state_dict(self, *args, **kwargs)
 
@@ -243,7 +269,7 @@ class HQQLinearTritonSavable(HQQLinear):
 class MixtralBLockSparseTop2MLP_HQQ(nn.Module):
     def __init__(self, config: MixtralConfig, quant_config: Dict[str, Any], meta1, meta2):
         super().__init__()
-        
+
         self.w1 = HQQLinearTritonSavable(None, quant_config, meta1)
         self.w2 = HQQLinearTritonSavable(None, quant_config, meta2)
         self.w3 = HQQLinearTritonSavable(None, quant_config, meta1)
