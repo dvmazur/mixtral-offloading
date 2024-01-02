@@ -12,10 +12,46 @@ In summary, we achieve efficient inference of Mixtral-8x7B models through a comb
 For more detailed information about our methods and results, please refer to our [tech-report](https://arxiv.org/abs/2312.17238).
 
 ## Running
+This project offers an online demo as well as a CLI interface for local usage.
 
+### Online
 To try this demo, please use the demo notebook: [./notebooks/demo.ipynb](./notebooks/demo.ipynb) or [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dvmazur/mixtral-offloading/blob/master/notebooks/demo.ipynb)
 
-For now, there is no command-line script available for running the model locally. However, you can create one using the demo notebook as a reference. That being said, contributions are welcome!
+### CLI
+To run this demo via CLI checkout this git repository, install all dependencies into a virtual env
+```bash
+# Prepare Venv
+➜  python3 -m venv venv && source venv/bin/activate
+# Install dependencies
+(venv) ➜  pip3 install -r requirements.txt
+```
+and run the **cli.py**:
+```bash
+(venv) ➜  python3 cli.py
+```
+
+The CLI offers parameters to tweak the output as following
+```bash
+Usage: cli.py [OPTIONS]
+
+  Generate responses using Mixtral model.
+
+Options:
+  --model-name TEXT               [default:
+                                  mistralai/Mixtral-8x7B-Instruct-v0.1]
+  --quantized-model-name TEXT     [default: lavawolfiee/Mixtral-8x7B-Instruct-
+                                  v0.1-offloading-demo]
+  --offload-per-layer INTEGER     [default: 5]
+  --temperature FLOAT             [default: 0.9]
+  --top-p FLOAT                   [default: 0.9]
+  --max-new-tokens INTEGER        [default: 512]
+  --install-completion [bash|zsh|fish|powershell|pwsh]
+                                  Install completion for the specified shell.
+  --show-completion [bash|zsh|fish|powershell|pwsh]
+                                  Show completion for the specified shell, to
+                                  copy it or customize the installation.
+  --help                          Show this message and exit.
+```
 
 ## Work in progress
 
