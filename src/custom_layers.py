@@ -87,7 +87,7 @@ class HQQLinearTritonSavable(HQQLinear):
 
         #Cleanup
         for key in del_keys:
-            del meta[key]
+            meta.pop(key, None)
 
         return output
 
